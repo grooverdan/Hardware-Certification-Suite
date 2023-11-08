@@ -1,19 +1,59 @@
 ---
+- name: TEST MariaDB - install mariadb repo
+  register: install_registry
+  ansible.builtin.yum_repository:
+    name: mariadb
+    description: MariaDB repository
+    baseurl: http://archive.mariadb.org/mariadb-{{ test_vesion }}/yum/rhel/$releasever/$basearch
+    gpgcheck: true
+    gpgkey: https://archive.mariadb.org/PublicKey
+  when:
+    - test_isv-mariadb.test_version is defined
+
 - name: TEST MariaDB - install mariadb-test package
   dnf:
     name:
-      - mariadb
-      - mariadb-test
+      - mariadb-test={{ test_vesion }}
     state: present
     update_cache: True
+  when: install_registry is changed
+
+- name: TEST MariaDB - create filesystem
+  register: create_filesystem
+  shell: |
+    set -o pipefail
+    set -o errexit
+    dd if=/dev/zero of=/fstest bs=8k count=1M
+    losetup -f /fstest
+    mkfs.xfs /dev/loop0
+    mount /dev/loop0 /mnt
+    chown mysql: /mnt
+  # see: https://github.com/ansible/ansible-lint/issues/497
+  args:
+    executable: /bin/bash
 
 - name: TEST MariaDB - run tests
-  shell: "cd /usr/share/mysql-test; ./mysql-test-run.pl"
-  register: output
+  register: run_test
+  shell: |
+    cd /usr/share/mysql-test
+    su -u mysql -c './mariadb-test-run.pl --vardir=/mnt --big-test'
   ignore_errors: true
+  when: create_filesystem is changed
 
 - name: TEST MariaDB - copy log
-  local_action: copy content="{{ output.stdout }}" dest="{{ lts_logs_dir }}/mariadb.log"
+  local_action: copy content="{{ run_test.stdout }}" dest="{{ lts_logs_dir }}/mariadb.log"
+
+- name: TEST MariaDB - cleaup filesystem
+  shell: |
+    set -o pipefail
+    set -o errexit
+    umount /mnt
+    losetup -d /dev/loop0
+    rm /fstest
+  # see: https://github.com/ansible/ansible-lint/issues/497
+  args:
+    executable: /bin/bash
+  when: run_test is changed
 
 - name: TEST MariaDB - cleanup package
   dnf:
@@ -21,3 +61,4 @@
       #- mariadb -- how to prevent from deinstalling mariadb if it was there already?
       - mariadb-test
     state: absent
+  when: run_test is changerun_test

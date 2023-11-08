@@ -42,4 +42,5 @@ test_ltp:
 
 #ISV-MariaDB
 test_isv-mariadb:
+  test_version: 10.11.5
   params: "" # This is to express the intent that we want MariaDB Foundation's team to help us parametrize the mariadb-test runner.
